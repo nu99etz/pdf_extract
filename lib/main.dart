@@ -1,12 +1,17 @@
 import 'dart:convert';
-import 'dart:developer';
+import 'dart:developer' as dev;
 import 'dart:io';
+import 'dart:math';
 
+import 'package:arcgis_maps/arcgis_maps.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:pdf_extract/CreateAndEditGeometries.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart';
 
 void main() {
+  ArcGISEnvironment.apiKey =
+      'AAPTxy8BH1VEsoebNVZXo8HurGg8GhcR-F3-iQtJ01J3YvK1uXuKS-Jciw4IGFMGw7EMUXz9jaixmnM896oOSBLzFl0pZ035BIgCZn3NKKlp8mYE-mS-rRerbYEJFmP-aSJBSshKecYMVLqyVNRdTFOr16PRAXJD5WLlBJIG3zVRlYCVORGQ7MJVtIHoXtmpKw1zGOMhMUEX-8pVVlSvQ4XW1ADrXWXiOURbLB1EH9W72p8.AT1_tSyrftwT';
   runApp(const MyApp());
 }
 
@@ -37,7 +42,7 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      home: const CreateAndEditGeometries(),
     );
   }
 }
@@ -60,110 +65,47 @@ class MyHomePage extends StatefulWidget {
   State<MyHomePage> createState() => _MyHomePageState();
 }
 
-pecahText(String text) {
-  List<String> listText = text.split(":");
-  Map<String, dynamic> textClean = {};
-  textClean = {
-    'nama_kebutuhan': listText[0].trim(),
-    'jumlah': listText.length >= 2 ? listText[1].trim() : null,
-  };
-  return textClean;
-}
-
-getTitle(List<TextLine> textCollection, {
-  double? top = 550,
-  double? bottom = 660,
-  double? left = 200,
-  double? right = 0
-}) {
-  String judul = "";
-  for(var text in textCollection) {
-    if(text.bounds.top >= top! && text.bounds.bottom <= bottom! && text.bounds.left <= left!) {
-      judul += " ${text.text}";
-    }
-  }     
-  return judul;
-}
-
-getKebutuhan(List<TextLine> textCollection, {
-  double? top = 550,
-  double? bottom = 550,
-  double? left = 650,
-  double? right = 0
-}) {
-  KebutuhanPdf? kebutuhanPdf = KebutuhanPdf();
-  String? type;
-  List<String> duplicate = [];
-  int key = 0;
-  for(var text in textCollection) {
-    if(text.bounds.top <= top! && text.bounds.bottom <= bottom! && text.bounds.left >= left!) {
-      duplicate.add(text.text);
-      if(text.text.contains("KONDISI EXISTING")) {
-        type = 'existing';
-        kebutuhanPdf.existing = [];
-        continue;
-      } else if(text.text.contains("KEBUTUHAN MATERIAL SUTM")) {
-        type = 'sutm';
-        kebutuhanPdf.sutm = [];
-        continue;
-      } else if(text.text.contains("KEBUTUHAN MATERIAL GARDU")) {
-        type = 'gd';
-        kebutuhanPdf.gardu = [];
-        continue;
-      } else if(text.text.contains("KEBUTUHAN MATERIAL SUTR")) {
-        type = 'sutr';
-        kebutuhanPdf.sutr = [];
-        continue;
-      }
-
-      String originalText = text.text;
-      if(!originalText.contains(":")) {
-        key++;
-        originalText = originalText + " ${textCollection[key].text}";
-      }
-      Map<String, dynamic> pechaText = pecahText(originalText);
-      if(type == 'existing') {
-        duplicate.add(text.text);
-        kebutuhanPdf.existing!.add(pechaText);
-      } else if(type == 'sutm') {
-        duplicate.add(text.text);
-        kebutuhanPdf.sutm!.add(pechaText);
-      } else if(type == 'sutr') {
-        duplicate.add(text.text);
-        kebutuhanPdf.sutr!.add(pechaText);
-      } else if(type == 'gd') {
-        duplicate.add(text.text);
-        kebutuhanPdf.gardu!.add(pechaText);
-      }
-    }
-  }
-  return kebutuhanPdf;
-}
-
-checkValue(List<String> listText) {
-
-}
-
 checkIsNumeric(String number) {
   final numericRegex = RegExp(r'^[0-9]+$');
   return numericRegex.hasMatch(number);
 }
 
+recursiveText(String text, int i, List<String> listText) {
+  if (i != (listText.length - 1)) {
+    if ("${text.toString()}${listText[i + 1]}".contains(":")) {
+      skippedCheck.add(i + 1);
+      listString.add("${text.toString()}${listText[i + 1]}");
+    } else {
+      recursiveText("${text.toString()}${listText[i + 1]}", i + 1, listText);
+    }
+  }
+}
+
+List<int> skippedCheck = [];
+List<String> listString = [];
 List<String> cleanText(List<String> listText) {
-  List<int> skippedCheck = [];
-  List<String> listString = [];
-  for(int i = 0; i < listText.length; i++) {
-    if(!skippedCheck.contains(i)) {
-      if(!checkIsNumeric(listText[i].split(".")[0])) {
+  skippedCheck = [];
+  listString = [];
+  for (int i = 0; i < listText.length; i++) {
+    if (!skippedCheck.contains(i)) {
+      if (!checkIsNumeric(listText[i].split(".")[0].trim())) {
         break;
       }
-      if(listText[i].contains(":")) {
-        listString.add(listText[i]);
+      if (listText[i].contains(":")) {
+        List<String> pecahText = listText[i].split(":");
+        if (pecahText.length > 1 && RegExp(r'\s{2,}').hasMatch(pecahText[1])) {
+          listString.add("${listText[i]}${listText[i + 1]}");
+          skippedCheck.add(i + 1);
+        } else {
+          listString.add(listText[i]);
+        }
       } else {
-        if(i != (listText.length - 1)) {
-          if("${listText[i]}${listText[i + 1]}".contains(":")) {
+        if (i != (listText.length - 1)) {
+          skippedCheck.add(i + 1);
+          if ("${listText[i]}${listText[i + 1]}".contains(":")) {
             listString.add("${listText[i]}${listText[i + 1]}");
-            skippedCheck.add(i+1);
+          } else {
+            recursiveText("${listText[i]}${listText[i + 1]}", i + 1, listText);
           }
         }
       }
@@ -172,9 +114,200 @@ List<String> cleanText(List<String> listText) {
   return listString;
 }
 
+List<KebutuhanPdf> getKeyValue(List<String> listText) {
+  List<KebutuhanPdf> listCleanText = [];
+  for (var value in listText) {
+    List<String> textPecah = value.trim().split(":");
+    if (textPecah.length > 1) {
+      List<String> valueAngka = textPecah[1].trim().split(" ");
+      valueAngka = valueAngka.where((value) {
+        return value != "";
+      }).toList();
+      listCleanText.add(KebutuhanPdf(
+          namaKebutuhan: textPecah[0]
+              .replaceAll(RegExp(r'\s{2,}'), " ")
+              .split(".")[1]
+              .trim(),
+          volume: int.parse(valueAngka[0]),
+          satuan: valueAngka[1]));
+    }
+  }
+  return listCleanText;
+}
+
+List<KebutuhanPdf> getKebutuhan(
+    {String jenisKebutuhan = 'KEBUTUHAN MATERIAL SUTR', String? fullText}) {
+  try {
+    List<KebutuhanPdf> listKebutuhanPdf = [];
+    int startIndex = fullText!.indexOf(jenisKebutuhan);
+    if (startIndex == -1) {
+      throw Exception("Error Can't Read PDF $jenisKebutuhan");
+    }
+
+    startIndex += jenisKebutuhan.length;
+
+    String textDapat = fullText.substring(startIndex).trim();
+    List<String> textSplit = textDapat.split("\n");
+    List<String> listKebutuhan = cleanText(textSplit);
+    if (listKebutuhan.isNotEmpty) {
+      listKebutuhanPdf = getKeyValue(listKebutuhan);
+    }
+
+    return listKebutuhanPdf;
+  } catch (e) {
+    dev.log("CANT RETRIEVE KEBUTUHAN BECAUSE PDF IS NOT READ ${e.toString()}");
+    return [];
+  }
+}
+
+String cleanTitleText(String title) {
+  List<String> cleanTexts = [
+    "KEBUTUHAN MATERIAL SUTR",
+    "KEBUTUHAN MATERIAL SUTM",
+    "KEBUTUHAN MATERIAL GARDU",
+    "KONDISI EXISTNG",
+    "KEBUTUHAN MATERIAL SP APP",
+    "DISETUJUI",
+    "DIPERIKSA",
+    "DIGAMBAR",
+    "NO. GAMBAR",
+    "NO. LEMBAR",
+    "TANGGAL"
+  ];
+  List<String> listKataClean = title.split("\n");
+  String titleClean = "USULAN ";
+  for (var value in listKataClean) {
+    bool isBreak = false;
+    for (var cleanTextValue in cleanTexts) {
+      if (value.contains(cleanTextValue)) {
+        isBreak = true;
+      }
+    }
+    if (!isBreak) {
+      titleClean += value;
+    } else {
+      break;
+    }
+  }
+  return titleClean;
+}
+
+String getTitle({String? fullText}) {
+  try {
+    int startIndex = fullText!.indexOf("USULAN");
+    if (startIndex == -1) {
+      throw Exception("Error Can't Retrieved Judul");
+    }
+
+    startIndex += "USULAN".length;
+
+    String textDapat = cleanTitleText(fullText.substring(startIndex).trim());
+    return textDapat;
+  } catch (e) {
+    dev.log("CANT RETRIEVE KEBUTUHAN BECAUSE PDF IS NOT READ ${e.toString()}");
+    return "-";
+  }
+}
+
+List<String> getDaya({String? title}) {
+  try {
+    int startIndex = title!.indexOf("DAYA");
+    if (startIndex == -1) {
+      throw Exception("Error Can't Retrieved Daya");
+    }
+
+    startIndex += "DAYA".length;
+    int endIndex = title.indexOf("VA", startIndex);
+
+    List<String> hasil = title
+        .substring(startIndex, endIndex)
+        .replaceAll(RegExp(r'[()]'), "")
+        .trim()
+        .toString()
+        .split("x");
+
+    if (hasil.length > 1) {
+      return hasil;
+    }
+
+    return ["1", hasil[0]];
+  } catch (e) {
+    dev.log("CANT RETRIEVE KEBUTUHAN BECAUSE PDF IS NOT READ ${e.toString()}");
+    return [];
+  }
+}
+
+String getLocationTitle({String? title}) {
+  int startIndex = title!.indexOf("LOKASI");
+  if (startIndex == -1) {
+    throw Exception("Error Can't Retrieved Location");
+  }
+
+  startIndex += "LOKASI".length;
+
+  return title.substring(startIndex).trim();
+}
+
 class _MyHomePageState extends State<MyHomePage> {
   int _counter = 0;
-  String? textExtract;
+  String? textExtract, judul, jumlahPelanggan, daya, lokasi;
+  List<KebutuhanPdf> listKebutuhanSutr = [];
+  List<KebutuhanPdf> listKebutuhanSutm = [];
+  List<KebutuhanPdf> listKebutuhanGd = [];
+  List<KebutuhanPdf> listKebutuhanSpApp = [];
+
+  final GraphicsOverlay _graphicsOverlay = GraphicsOverlay();
+  final List<Graphic> _markers = [];
+  final List<Point> _routePoints = [];
+
+  TextEditingController searchController = TextEditingController();
+  ArcGISMapViewController arcGISMapViewController = ArcGISMapView.createController();
+  ArcGISPoint arcGISPoint = ArcGISPoint(
+    x: 112.76980810000001,
+    y: -7.2763873999999999,
+    spatialReference: SpatialReference.webMercator
+  );
+
+  double zoomMap = 100;
+
+  final map = ArcGISMap.withBasemapStyle(BasemapStyle.arcGISImagery);
+
+  ArcGISPoint point = ArcGISPoint(
+    x: 310.2593994140625,
+    y: 107.029296875,
+    spatialReference: SpatialReference.webMercator,
+  );
+
+  GraphicsOverlay graphicsOverlay = GraphicsOverlay();
+
+  void geocodingSearch() async {
+    try {
+      final locatorTask = LocatorTask.withUri(
+        Uri.parse(
+          'https://geocode-api.arcgis.com/arcgis/rest/services/World/GeocodeServer',
+        ),
+      );
+      locatorTask.apiKey = 'AAPTxy8BH1VEsoebNVZXo8HurGg8GhcR-F3-iQtJ01J3YvK1uXuKS-Jciw4IGFMGw7EMUXz9jaixmnM896oOSBLzFl0pZ035BIgCZn3NKKlp8mYE-mS-rRerbYEJFmP-aSJBSshKecYMVLqyVNRdTFOr16PRAXJD5WLlBJIG3zVRlYCVORGQ7MJVtIHoXtmpKw1zGOMhMUEX-8pVVlSvQ4XW1ADrXWXiOURbLB1EH9W72p8.AT1_tSyrftwT';
+      GeocodeParameters geocodeParameters = GeocodeParameters();
+      var results = await locatorTask.geocode(searchText: searchController.text);
+
+      final result = results.firstOrNull;
+
+      if (result != null) {
+        final combinedString =
+            'Found ${result.label} at ${result.displayLocation} with score ${result.score}';
+
+        setState(() {
+          arcGISPoint = ArcGISPoint(x: result.displayLocation!.x, y: result.displayLocation!.y);
+        });
+
+        debugPrint(combinedString);
+      }
+
+    } catch (e) {
+      dev.log("error ${e.toString()}");
+    }
+  }
 
   void _incrementCounter() async {
     setState(() {
@@ -190,101 +323,87 @@ class _MyHomePageState extends State<MyHomePage> {
 
     if (result != null) {
       File file = File(result.files.single.path!);
-      log("file : " + file.toString());
-      List<String> lines = [];
-
-      //Load an existing PDF document.
-      PdfDocument document =
-          PdfDocument(inputBytes: file.readAsBytesSync());
-      // //Find the text and get matched items.
-      // List<TextLine> textCollection =
-      //     PdfTextExtractor(document).extractTextLines();  
-
-      // for(var text in textCollection) {
-      //   final String textExtract = text.text.trim();
-      //   if(textExtract.isNotEmpty) {
-      //     lines.add(textExtract);
-      //   }
-      // }
-
-      // log("line sebelum filter : ${lines.toString()}");
-
-      // lines = lines.where((value) {
-      //   return value.startsWith("KEBUTUHAN MATERIAL GARDU");
-      // }).toList();
-
-      // log("string lines ${lines.toString()}");
-
-      // // judul
-      // String judul = getTitle(textCollection);
-      // log("judul ${judul}");
-
-      // // list kebutuhan
-      // KebutuhanPdf kebutuhanPdf = getKebutuhan(textCollection);
-      // log({
-      //   "sutr " : kebutuhanPdf.sutr,
-      //   "sutm " : kebutuhanPdf.sutm,
-      //   "existing " : kebutuhanPdf.existing, 
-      //   "gardu " : kebutuhanPdf.gardu
-      // }.toString());
-
-      
-      
-      // //Get the matched item in the collection using index.
-      // MatchedItem matchedText = textCollection[0];
-      // //Get the text bounds.
-      // Rect textBounds = matchedText.bounds;  
-      // //Get the page index.
-      // int pageIndex = matchedText.pageIndex; 
-      // //Get the text.
-      // String text = matchedText.text;
-      // //Dispose the document.
-
-      String text = PdfTextExtractor(document).extractText();
-      int textSearch = text.indexOf("Tiang Beton 13M");
-      log("index " + textSearch.toString());
-      // log("text : " + textSearch[1].toString());
-      // log("text yanro : " + text);
 
       setState(() {
+        //Load an existing PDF document.
+        PdfDocument document = PdfDocument(inputBytes: file.readAsBytesSync());
+
+        String text = PdfTextExtractor(document).extractText();
+
         textExtract = text;
+
+        judul = null;
+
+        judul = getTitle(fullText: text);
+
+        jumlahPelanggan = getDaya(title: judul)[0];
+
+        daya = getDaya(title: judul)[1];
+
+        lokasi = getLocationTitle(title: judul);
+
+        listKebutuhanSutr = [];
+        listKebutuhanGd = [];
+        listKebutuhanSutm = [];
+
+        listKebutuhanSutr = getKebutuhan(
+            fullText: text, jenisKebutuhan: "KEBUTUHAN MATERIAL SUTR");
+
+        listKebutuhanGd = getKebutuhan(
+          fullText: text,
+          jenisKebutuhan: "KEBUTUHAN MATERIAL GARDU",
+        );
+
+        listKebutuhanSutm = getKebutuhan(
+            fullText: text, jenisKebutuhan: "KEBUTUHAN MATERIAL SUTM");
       });
-
-      String fullText = PdfTextExtractor(document).extractText();
-
-      int startIndex = fullText.indexOf("KEBUTUHAN MATERIAL SUTM");
-      log("startIndex $startIndex");
-      if (startIndex == -1) return null;
-
-      // Hitung posisi setelah kata awal
-      startIndex += "KEBUTUHAN MATERIAL SUTM".length;
-
-      // Cari kata akhir setelah kata awal
-      // int endIndex = fullText.indexOf("KEBUTUHAN MATERIAL SUTR", startIndex);
-      // log("endindex $endIndex");
-      // if (endIndex == -1) return null;
-
-      // Ambil teks di antara keduanya
-      String textDapat = fullText.substring(startIndex).trim();
-
-      List<String> textSplit = textDapat.split("\n");
-
-      List<String> listGardu = cleanText(textSplit);
-
-      log("textDapat ${listGardu.toString()}");
-
-      document.dispose();
-      
-      // AlertDialog(
-      //   content: Text(text),
-      // );
-
-    } else {
-
-    }
+    } else {}
   }
 
-  @override
+  Future<void> _setExtent() async {
+    // Create a new envelope builder using the same spatial reference as the graphics.
+    final myEnvelopeBuilder = EnvelopeBuilder(
+      spatialReference: SpatialReference.webMercator,
+    );
+
+    // Loop through each graphic in the graphic collection.
+    for (final graphic in graphicsOverlay.graphics) {
+      // Union the extent of each graphic in the envelope builder.
+      myEnvelopeBuilder.unionWithEnvelope(graphic.geometry!.extent);
+    }
+
+    // Expand the envelope builder by 30%.
+    myEnvelopeBuilder.expandBy(1.3);
+
+    // Adjust the viewable area of the map to encompass all of the graphics in the
+    // graphics overlay plus an extra 30% margin for better viewing.
+    await arcGISMapViewController.setViewpointAnimated(
+      Viewpoint.fromTargetExtent(myEnvelopeBuilder.extent),
+    );
+  }
+
+  onTapMap(Offset position) async {
+    final identifyResult = await arcGISMapViewController.identifyGraphicsOverlay(
+      _graphicsOverlay,
+      screenPoint: position,
+      tolerance: 12,
+    );
+    ArcGISPoint point = ArcGISPoint(
+      x: position.dx,
+      y: position.dy,
+      spatialReference: SpatialReference.webMercator
+    );
+    var graphic = Graphic(
+      geometry: point,
+      symbol: SimpleMarkerSymbol(color: Colors.red, size: 10)
+    );
+    setState(() {
+      graphicsOverlay.graphics.add(graphic);
+    });
+    _setExtent();
+  }
+
+  @override 
   Widget build(BuildContext context) {
     // This method is rerun every time setState is called, for instance as done
     // by the _incrementCounter method above.
@@ -302,36 +421,58 @@ class _MyHomePageState extends State<MyHomePage> {
         // the App.build method, and use it to set our appbar title.
         title: Text(widget.title),
       ),
-      body: SingleChildScrollView(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text(
-              'You have pushed the button this many times:',
+      body: Column(
+        children: [
+          Container(
+            padding: EdgeInsets.all(10),
+            child: TextField(
+              controller: searchController,
+              onSubmitted: (value) {
+                geocodingSearch();
+              },
             ),
-            Text(
-              '${textExtract ?? '-'}',
-              style: TextStyle(
-                fontSize: 10
-              ),
+          ),
+          Container(
+            padding: EdgeInsets.all(10),
+            child: Row(
+              children: [
+                ElevatedButton(
+                  onPressed: () {
+                    setState(() {
+                      zoomMap++;
+                    });
+                  },
+                  child: Text("Zoom In"),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    setState(() {
+                      zoomMap--;
+                    });
+                  },
+                  child: Text("Zoom Out"),
+                )
+              ],
             ),
-          ],
-        ),
+          ),
+          Expanded(
+            child: ArcGISMapView(
+            controllerProvider: () => arcGISMapViewController,
+            onMapViewReady: () {
+              map.initialViewpoint = Viewpoint.fromCenter(arcGISPoint, scale: zoomMap);
+              arcGISMapViewController.arcGISMap = map;
+              arcGISMapViewController.graphicsOverlays.add(graphicsOverlay);
+            },
+            onTap: (localPosition) {
+              dev.log("localPosition ${localPosition.toString()}");
+              dev.log({
+                "dx": localPosition.dx,
+                "dy": localPosition.dy,
+              }.toString());
+              onTapMap(localPosition);
+            }),
+          )
+        ],
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _incrementCounter,
@@ -343,15 +484,21 @@ class _MyHomePageState extends State<MyHomePage> {
 }
 
 class KebutuhanPdf {
-  List<Map<String, dynamic>>? sutr = [];
-  List<Map<String, dynamic>>? sutm = [];
-  List<Map<String, dynamic>>? gardu = [];
-  List<Map<String, dynamic>>? existing = [];
+  String? namaKebutuhan, satuan;
+  int? volume;
 
-  KebutuhanPdf({
-    this.sutm,
-    this.sutr,
-    this.gardu,
-    this.existing
+  KebutuhanPdf({this.namaKebutuhan, this.volume, this.satuan});
+}
+
+class MarkerMap {
+  double? x,y;
+  int? id;
+  SpatialReference? spatialReference;
+
+  MarkerMap({
+    required this.x,
+    required this.y,
+    this.id,
+    this.spatialReference
   });
 }
