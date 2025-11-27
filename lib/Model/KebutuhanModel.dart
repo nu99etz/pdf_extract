@@ -5,11 +5,14 @@ class KebutuhanModel {
   String? jenisKabel;
   bool? isExisting;
   GeometryType? typeGeometry;
+  double? x,y;
   KebutuhanModel({
     this.jenisKebutuhan,
     this.jenisKabel,
     this.isExisting,
-    this.typeGeometry
+    this.typeGeometry,
+    this.x,
+    this.y
   });
 
   Map<String, dynamic> toJson() {

@@ -25,6 +25,7 @@ class _CreateAndEditGeometriesState extends State<CreateAndEditGeometries> {
 
   List<KebutuhanModel>? listKebutuhanModel = [];
   List<MasterKebutuhanModel>? listMasterKebutuhanModel = [];
+  List<MasterKebutuhanModel>? listMasterKebutuhanKabelModel = [];
 
   // Create a list of geometry types to make available for editing.
   final _geometryTypes = [
@@ -35,7 +36,7 @@ class _CreateAndEditGeometriesState extends State<CreateAndEditGeometries> {
   ];
 
   // Create symbols which will be used for each geometry type.
-  late final SimpleMarkerSymbol _pointSymbol;
+  SimpleMarkerSymbol? _pointSymbol;
   SimpleMarkerSymbol? _multipointSymbol;
   SimpleLineSymbol? _polylineSymbol;
   late final SimpleFillSymbol _polygonSymbol;
@@ -63,25 +64,30 @@ class _CreateAndEditGeometriesState extends State<CreateAndEditGeometries> {
   var _showEditToolbar = true;
 
   MasterKebutuhanModel? masterKebutuhanModel;
+  MasterKebutuhanModel? masterKebutuhanKabelModel;
+  bool? isKebutuhan = true;
+  bool? isKebutuhanKabel = false;
+
+  List<PathsTrigger> paths = [];
 
   onInit() async {
     setState(() {
       listMasterKebutuhanModel!.add(
-        MasterKebutuhanModel(namaKebutuhan: "Tiang Beton", typeGeometry: GeometryType.multipoint, color: Colors.red)
+        MasterKebutuhanModel(namaKebutuhan: "Tiang Beton", typeGeometry: GeometryType.point, color: Colors.red)
       );
       listMasterKebutuhanModel!.add(
-        MasterKebutuhanModel(namaKebutuhan: "Tiang Besi", typeGeometry: GeometryType.multipoint, color: Colors.yellow)
+        MasterKebutuhanModel(namaKebutuhan: "Tiang Besi", typeGeometry: GeometryType.point, color: Colors.yellow)
       );
       listMasterKebutuhanModel!.add(
-        MasterKebutuhanModel(namaKebutuhan: "Konstruksi", typeGeometry: GeometryType.multipoint, color: Colors.blue)
+        MasterKebutuhanModel(namaKebutuhan: "Konstruksi", typeGeometry: GeometryType.point, color: Colors.blue)
       );
       listMasterKebutuhanModel!.add(
-        MasterKebutuhanModel(namaKebutuhan: "Trafo", typeGeometry: GeometryType.multipoint, color: Colors.black)
+        MasterKebutuhanModel(namaKebutuhan: "Trafo", typeGeometry: GeometryType.point, color: Colors.black)
       );
-      listMasterKebutuhanModel!.add(
+      listMasterKebutuhanKabelModel!.add(
         MasterKebutuhanModel(namaKebutuhan: "SUTR", typeGeometry: GeometryType.polyline, color: Colors.yellow)
       );
-      listMasterKebutuhanModel!.add(
+      listMasterKebutuhanKabelModel!.add(
         MasterKebutuhanModel(namaKebutuhan: "JUTR", typeGeometry: GeometryType.polyline, color: Colors.red)
       );
     });
@@ -181,10 +187,6 @@ class _CreateAndEditGeometriesState extends State<CreateAndEditGeometries> {
   }
 
   Future<void> onTap(Offset localPosition) async {
-    log("onTap");
-    for (var value in listKebutuhanModel!) {
-      log("value ${value.jenisKebutuhan}");
-    }
     // Perform an identify operation on the graphics overlay at the tapped location.
     final identifyResult = await _mapViewController.identifyGraphicsOverlay(
       _graphicsOverlay,
@@ -194,15 +196,16 @@ class _CreateAndEditGeometriesState extends State<CreateAndEditGeometries> {
 
     // Get the features from the identify result.
     final graphics = identifyResult.graphics;
-
-    log("gar ${graphics.first.geometry.toString()}");
+    log("indetify ${graphics.toString()}");
 
     if (graphics.isNotEmpty) {
       final graphic = graphics.first;
+      log("graphic first ${graphic.geometry.toString()}");
       if (graphic.geometry != null) {
         final geometry = graphic.geometry!;
+        Map<String, dynamic> trigger = geometry.toJson();
         // Hide the selected graphic so that only the version of the graphic that is being edited is visible.
-        graphic.isVisible = false;
+        // graphic.isVisible = false;
         // Set the graphic as the selected graphic and also set the selected geometry type to update the UI.
         _selectedGraphic = graphic;
         setState(() => _selectedGeometryType = geometry.geometryType);
@@ -210,10 +213,22 @@ class _CreateAndEditGeometriesState extends State<CreateAndEditGeometries> {
         if (geometry.geometryType == GeometryType.point ||
             geometry.geometryType == GeometryType.multipoint) {
           _geometryEditor.tool = _vertexTool;
-          setState(() => _selectedTool = _vertexTool);
+          
+          // setState(() => _selectedTool = _vertexTool);
+          setState(() {
+            if(paths.length >= 2) {
+              paths.clear();
+            }
+            paths.add(PathsTrigger(x: trigger['x'], y: trigger['y'], spatialReference: {
+              'wkid': trigger['spatialReference']['wkid'],
+              'latestWkid': trigger['spatialReference']['latestWkid']
+             }));
+             createLine();
+          });
         }
         // Start the geometry editor using the geometry of the graphic.
-        _geometryEditor.startWithGeometry(geometry);
+        // _geometryEditor.startWithGeometry(geometry);
+        // startEditingWithGeometryType(GeometryType.polyline);
       }
     }
   }
@@ -222,14 +237,24 @@ class _CreateAndEditGeometriesState extends State<CreateAndEditGeometries> {
     // Set the selected geometry type.
     setState(() => _selectedGeometryType = geometryType);
     _geometryEditor.startWithGeometryType(geometryType);
-    // setState(() {
-    //   listKebutuhanModel!.add(KebutuhanModel(
-    //     jenisKebutuhan: masterKebutuhanModel!.namaKebutuhan
-    //   ));
-    // });
-    // for (var value in listKebutuhanModel!) {
-    //   log("value ${value.jenisKebutuhan}");
-    // }
+  }
+
+  void createLine() {
+    if(paths.length > 1) {
+      Map<String, dynamic> json = {};
+      List<List> points = [];
+      for (var value in paths) {
+        points.add([value.x, value.y]);
+      }
+
+      json['paths'] = [points];
+      json['spatialReference'] = paths[0].spatialReference;
+
+      final ggg = Geometry.fromJson(json);
+      
+      _polylineSymbol = SimpleLineSymbol(color: Colors.blue, width: 5);
+      _graphicsOverlay.graphics.add(Graphic(geometry: ggg, symbol: _polylineSymbol));
+    }
   }
 
   void stopAndSave() {
@@ -237,7 +262,8 @@ class _CreateAndEditGeometriesState extends State<CreateAndEditGeometries> {
     // Get the geometry from the geometry editor.
     final geometry = _geometryEditor.stop();
     Map<String, dynamic> jsonDecodeGeometry = jsonDecode(jsonEncode(geometry));
-    log("point geometry : ${jsonDecodeGeometry['points'].toString()}");
+
+    log("geometry ${jsonDecodeGeometry.toString()}");
 
     if (geometry != null) {
       if (_selectedGraphic != null) {
@@ -266,9 +292,22 @@ class _CreateAndEditGeometriesState extends State<CreateAndEditGeometries> {
       setState(() {
         if(jsonDecodeGeometry['points'] != null && jsonDecodeGeometry['points'].length > 0) {
           for(int i = 0; i < jsonDecodeGeometry['points'].length; i++) {
-            listKebutuhanModel!.add(KebutuhanModel(
-              jenisKebutuhan: masterKebutuhanModel!.namaKebutuhan
-            ));
+            bool? isEmpty = true;
+            if(listKebutuhanModel!.isNotEmpty) {
+              List<KebutuhanModel> checkExisting = listKebutuhanModel!.where((value) {
+                return value.x == jsonDecodeGeometry['points'][i][0] && value.y == jsonDecodeGeometry['points'][i][1];
+              }).toList();
+              if(checkExisting.isNotEmpty) {
+                isEmpty = false;
+              }
+            }
+            if(isEmpty) {
+              listKebutuhanModel!.add(KebutuhanModel(
+                jenisKebutuhan: masterKebutuhanModel!.namaKebutuhan,
+                x: jsonDecodeGeometry['points'][i][0],
+                y: jsonDecodeGeometry['points'][i][1]
+              ));
+            }
           }
         }
       });
@@ -389,7 +428,7 @@ class _CreateAndEditGeometriesState extends State<CreateAndEditGeometries> {
         DropdownButton(
           alignment: Alignment.center,
           hint: Text(
-            'Geometry Type',
+            'Kebutuhan',
             style: Theme.of(context).textTheme.labelMedium,
           ),
           icon: const Icon(Icons.arrow_drop_down),
@@ -397,15 +436,6 @@ class _CreateAndEditGeometriesState extends State<CreateAndEditGeometries> {
           iconDisabledColor: Theme.of(context).disabledColor,
           style: Theme.of(context).textTheme.labelMedium,
           value: masterKebutuhanModel,
-          // items: configureGeometryTypeMenuItems(),
-          // // If the geometry editor is already started then we fully disable the DropDownButton and prevent editing with another geometry type.
-          // onChanged: !_geometryEditorIsStarted
-          //     ? (GeometryType? geometryType) {
-          //         if (geometryType != null) {
-          //           startEditingWithGeometryType(geometryType);
-          //         }
-          //       }
-          //     : null,
           items: listMasterKebutuhanModel!.map((value) {
             final isVertexTool = _selectedTool == _vertexTool || _selectedTool == _reticleVertexTool;
             if (value.typeGeometry == GeometryType.point || value.typeGeometry == GeometryType.multipoint) {
@@ -436,38 +466,88 @@ class _CreateAndEditGeometriesState extends State<CreateAndEditGeometries> {
                   setState(() {  
                     masterKebutuhanModel = masterKebutuhan;
                     _selectedColorMultiPoint = masterKebutuhan.color;
-                    if(masterKebutuhan.typeGeometry == GeometryType.multipoint) {
-                      _multipointSymbol = SimpleMarkerSymbol(color: _selectedColorMultiPoint!, size: 10);
-                    }
-
-                    if(masterKebutuhan.typeGeometry == GeometryType.polyline) {
-                       _polylineSymbol = SimpleLineSymbol(color: _selectedColorMultiPoint!, width: 2);
+                    if(masterKebutuhan.typeGeometry == GeometryType.point) {
+                     _pointSymbol = SimpleMarkerSymbol(
+                        color: _selectedColorMultiPoint!,
+                        size: 12,
+                      );
                     }
                   });
                 }
               }
             : null,  
         ),
+
+        // DropdownButton(
+        //   alignment: Alignment.center,
+        //   hint: Text(
+        //     'Kebutuhan Kabel',
+        //     style: Theme.of(context).textTheme.labelMedium,
+        //   ),
+        //   icon: const Icon(Icons.arrow_drop_down),
+        //   iconEnabledColor: Theme.of(context).colorScheme.primary,
+        //   iconDisabledColor: Theme.of(context).disabledColor,
+        //   style: Theme.of(context).textTheme.labelMedium,
+        //   value: masterKebutuhanKabelModel,
+        //   items: listMasterKebutuhanKabelModel!.map((value) {
+        //     final isVertexTool = _selectedTool == _vertexTool || _selectedTool == _reticleVertexTool;
+        //     if (value.typeGeometry == GeometryType.point || value.typeGeometry == GeometryType.multipoint) {
+        //       return DropdownMenuItem(
+        //         enabled: isVertexTool,
+        //         value: value,
+        //         child: Text(
+        //           value.namaKebutuhan!.capitalize(),
+        //           style: isVertexTool
+        //               ? null
+        //               : const TextStyle(
+        //                   color: Colors.grey,
+        //                   fontStyle: FontStyle.italic,
+        //                 ),
+        //         ),
+        //       );
+        //     } else {
+        //       return DropdownMenuItem(
+        //         value: value,
+        //         child: Text(value.namaKebutuhan!.capitalize()),
+        //       );
+        //     }
+        //   }).toList(),
+        //   onChanged: !_geometryEditorIsStarted
+        //     ? (MasterKebutuhanModel? masterKebutuhan) {
+        //         if (masterKebutuhan != null) {
+        //           startEditingWithGeometryType(masterKebutuhan.typeGeometry!);
+        //           setState(() {  
+        //             masterKebutuhanModel = masterKebutuhan;
+        //             _selectedColorMultiPoint = masterKebutuhan.color;
+        //             if(masterKebutuhan.typeGeometry == GeometryType.multipoint) {
+        //               _multipointSymbol = SimpleMarkerSymbol(color: _selectedColorMultiPoint!, size: 10);
+        //             }
+        //           });
+        //         }
+        //       }
+        //     : null,  
+        // ),
+
         // A drop down button for selecting a tool.
-        DropdownButton(
-          alignment: Alignment.center,
-          hint: Text('Tool', style: Theme.of(context).textTheme.labelMedium),
-          iconEnabledColor: Theme.of(context).colorScheme.primary,
-          style: Theme.of(context).textTheme.labelMedium,
-          value: _selectedTool,
-          items: configureToolMenuItems(),
-          onChanged: (tool) {
-            if (tool != null) {
-              setState(() => _selectedTool = tool);
-              _geometryEditor.tool = tool;
-            }
-          },
-        ),
-        // A button to toggle the visibility of the editing toolbar.
-        IconButton(
-          onPressed: () => setState(() => _showEditToolbar = !_showEditToolbar),
-          icon: const Icon(Icons.edit),
-        ),
+        // DropdownButton(
+        //   alignment: Alignment.center,
+        //   hint: Text('Tool', style: Theme.of(context).textTheme.labelMedium),
+        //   iconEnabledColor: Theme.of(context).colorScheme.primary,
+        //   style: Theme.of(context).textTheme.labelMedium,
+        //   value: _selectedTool,
+        //   items: configureToolMenuItems(),
+        //   onChanged: (tool) {
+        //     if (tool != null) {
+        //       setState(() => _selectedTool = tool);
+        //       _geometryEditor.tool = tool;
+        //     }
+        //   },
+        // ),
+        // // A button to toggle the visibility of the editing toolbar.
+        // IconButton(
+        //   onPressed: () => setState(() => _showEditToolbar = !_showEditToolbar),
+        //   icon: const Icon(Icons.edit),
+        // ),
       ],
     );
   }
@@ -618,4 +698,15 @@ extension on String {
   String capitalize() {
     return '${this[0].toUpperCase()}${substring(1).toLowerCase()}';
   }
+}
+
+class PathsTrigger {
+  double? x,y;
+  Map<String, int>? spatialReference;
+
+  PathsTrigger({
+    required this.x,
+    required this.y,
+    required this.spatialReference
+  });
 }
