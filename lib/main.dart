@@ -7,6 +7,7 @@ import 'package:arcgis_maps/arcgis_maps.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:pdf_extract/CreateAndEditGeometries.dart';
+import 'package:pdf_extract/Model/SnapGeometryEdits.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart';
 
 void main() {
@@ -63,189 +64,6 @@ class MyHomePage extends StatefulWidget {
 
   @override
   State<MyHomePage> createState() => _MyHomePageState();
-}
-
-checkIsNumeric(String number) {
-  final numericRegex = RegExp(r'^[0-9]+$');
-  return numericRegex.hasMatch(number);
-}
-
-recursiveText(String text, int i, List<String> listText) {
-  if (i != (listText.length - 1)) {
-    if ("${text.toString()}${listText[i + 1]}".contains(":")) {
-      skippedCheck.add(i + 1);
-      listString.add("${text.toString()}${listText[i + 1]}");
-    } else {
-      recursiveText("${text.toString()}${listText[i + 1]}", i + 1, listText);
-    }
-  }
-}
-
-List<int> skippedCheck = [];
-List<String> listString = [];
-List<String> cleanText(List<String> listText) {
-  skippedCheck = [];
-  listString = [];
-  for (int i = 0; i < listText.length; i++) {
-    if (!skippedCheck.contains(i)) {
-      if (!checkIsNumeric(listText[i].split(".")[0].trim())) {
-        break;
-      }
-      if (listText[i].contains(":")) {
-        List<String> pecahText = listText[i].split(":");
-        if (pecahText.length > 1 && RegExp(r'\s{2,}').hasMatch(pecahText[1])) {
-          listString.add("${listText[i]}${listText[i + 1]}");
-          skippedCheck.add(i + 1);
-        } else {
-          listString.add(listText[i]);
-        }
-      } else {
-        if (i != (listText.length - 1)) {
-          skippedCheck.add(i + 1);
-          if ("${listText[i]}${listText[i + 1]}".contains(":")) {
-            listString.add("${listText[i]}${listText[i + 1]}");
-          } else {
-            recursiveText("${listText[i]}${listText[i + 1]}", i + 1, listText);
-          }
-        }
-      }
-    }
-  }
-  return listString;
-}
-
-List<KebutuhanPdf> getKeyValue(List<String> listText) {
-  List<KebutuhanPdf> listCleanText = [];
-  for (var value in listText) {
-    List<String> textPecah = value.trim().split(":");
-    if (textPecah.length > 1) {
-      List<String> valueAngka = textPecah[1].trim().split(" ");
-      valueAngka = valueAngka.where((value) {
-        return value != "";
-      }).toList();
-      listCleanText.add(KebutuhanPdf(
-          namaKebutuhan: textPecah[0]
-              .replaceAll(RegExp(r'\s{2,}'), " ")
-              .split(".")[1]
-              .trim(),
-          volume: int.parse(valueAngka[0]),
-          satuan: valueAngka[1]));
-    }
-  }
-  return listCleanText;
-}
-
-List<KebutuhanPdf> getKebutuhan(
-    {String jenisKebutuhan = 'KEBUTUHAN MATERIAL SUTR', String? fullText}) {
-  try {
-    List<KebutuhanPdf> listKebutuhanPdf = [];
-    int startIndex = fullText!.indexOf(jenisKebutuhan);
-    if (startIndex == -1) {
-      throw Exception("Error Can't Read PDF $jenisKebutuhan");
-    }
-
-    startIndex += jenisKebutuhan.length;
-
-    String textDapat = fullText.substring(startIndex).trim();
-    List<String> textSplit = textDapat.split("\n");
-    List<String> listKebutuhan = cleanText(textSplit);
-    if (listKebutuhan.isNotEmpty) {
-      listKebutuhanPdf = getKeyValue(listKebutuhan);
-    }
-
-    return listKebutuhanPdf;
-  } catch (e) {
-    dev.log("CANT RETRIEVE KEBUTUHAN BECAUSE PDF IS NOT READ ${e.toString()}");
-    return [];
-  }
-}
-
-String cleanTitleText(String title) {
-  List<String> cleanTexts = [
-    "KEBUTUHAN MATERIAL SUTR",
-    "KEBUTUHAN MATERIAL SUTM",
-    "KEBUTUHAN MATERIAL GARDU",
-    "KONDISI EXISTNG",
-    "KEBUTUHAN MATERIAL SP APP",
-    "DISETUJUI",
-    "DIPERIKSA",
-    "DIGAMBAR",
-    "NO. GAMBAR",
-    "NO. LEMBAR",
-    "TANGGAL"
-  ];
-  List<String> listKataClean = title.split("\n");
-  String titleClean = "USULAN ";
-  for (var value in listKataClean) {
-    bool isBreak = false;
-    for (var cleanTextValue in cleanTexts) {
-      if (value.contains(cleanTextValue)) {
-        isBreak = true;
-      }
-    }
-    if (!isBreak) {
-      titleClean += value;
-    } else {
-      break;
-    }
-  }
-  return titleClean;
-}
-
-String getTitle({String? fullText}) {
-  try {
-    int startIndex = fullText!.indexOf("USULAN");
-    if (startIndex == -1) {
-      throw Exception("Error Can't Retrieved Judul");
-    }
-
-    startIndex += "USULAN".length;
-
-    String textDapat = cleanTitleText(fullText.substring(startIndex).trim());
-    return textDapat;
-  } catch (e) {
-    dev.log("CANT RETRIEVE KEBUTUHAN BECAUSE PDF IS NOT READ ${e.toString()}");
-    return "-";
-  }
-}
-
-List<String> getDaya({String? title}) {
-  try {
-    int startIndex = title!.indexOf("DAYA");
-    if (startIndex == -1) {
-      throw Exception("Error Can't Retrieved Daya");
-    }
-
-    startIndex += "DAYA".length;
-    int endIndex = title.indexOf("VA", startIndex);
-
-    List<String> hasil = title
-        .substring(startIndex, endIndex)
-        .replaceAll(RegExp(r'[()]'), "")
-        .trim()
-        .toString()
-        .split("x");
-
-    if (hasil.length > 1) {
-      return hasil;
-    }
-
-    return ["1", hasil[0]];
-  } catch (e) {
-    dev.log("CANT RETRIEVE KEBUTUHAN BECAUSE PDF IS NOT READ ${e.toString()}");
-    return [];
-  }
-}
-
-String getLocationTitle({String? title}) {
-  int startIndex = title!.indexOf("LOKASI");
-  if (startIndex == -1) {
-    throw Exception("Error Can't Retrieved Location");
-  }
-
-  startIndex += "LOKASI".length;
-
-  return title.substring(startIndex).trim();
 }
 
 class _MyHomePageState extends State<MyHomePage> {
@@ -307,57 +125,6 @@ class _MyHomePageState extends State<MyHomePage> {
     } catch (e) {
       dev.log("error ${e.toString()}");
     }
-  }
-
-  void _incrementCounter() async {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      // _counter++;
-    });
-
-    FilePickerResult? result = await FilePicker.platform.pickFiles();
-
-    if (result != null) {
-      File file = File(result.files.single.path!);
-
-      setState(() {
-        //Load an existing PDF document.
-        PdfDocument document = PdfDocument(inputBytes: file.readAsBytesSync());
-
-        String text = PdfTextExtractor(document).extractText();
-
-        textExtract = text;
-
-        judul = null;
-
-        judul = getTitle(fullText: text);
-
-        jumlahPelanggan = getDaya(title: judul)[0];
-
-        daya = getDaya(title: judul)[1];
-
-        lokasi = getLocationTitle(title: judul);
-
-        listKebutuhanSutr = [];
-        listKebutuhanGd = [];
-        listKebutuhanSutm = [];
-
-        listKebutuhanSutr = getKebutuhan(
-            fullText: text, jenisKebutuhan: "KEBUTUHAN MATERIAL SUTR");
-
-        listKebutuhanGd = getKebutuhan(
-          fullText: text,
-          jenisKebutuhan: "KEBUTUHAN MATERIAL GARDU",
-        );
-
-        listKebutuhanSutm = getKebutuhan(
-            fullText: text, jenisKebutuhan: "KEBUTUHAN MATERIAL SUTM");
-      });
-    } else {}
   }
 
   Future<void> _setExtent() async {
@@ -474,11 +241,6 @@ class _MyHomePageState extends State<MyHomePage> {
           )
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
     );
   }
 }

@@ -6,18 +6,21 @@ class KebutuhanModel {
   bool? isExisting;
   GeometryType? typeGeometry;
   double? x,y;
+  SpatialReference? spatialReference;
   KebutuhanModel({
     this.jenisKebutuhan,
     this.jenisKabel,
     this.isExisting,
     this.typeGeometry,
     this.x,
-    this.y
+    this.y,
+    this.spatialReference
   });
 
   Map<String, dynamic> toJson() {
     return {
-      'jenisKebutuhan': jenisKebutuhan
+      'jenisKebutuhan': jenisKebutuhan,
+      'jenisKabel': jenisKabel ?? "-"
     };
   }
 }

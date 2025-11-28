@@ -1,8 +1,15 @@
 import 'dart:convert';
-import 'dart:developer';
+import 'dart:developer' as dev;
+import 'dart:io';
+import 'dart:math';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:arcgis_maps/arcgis_maps.dart';
+import 'package:dropdown_search/dropdown_search.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:pdf_extract/Model/KebutuhanModel.dart';
 import 'package:pdf_extract/Model/MasterKebutuhanModel.dart';
 
@@ -69,20 +76,120 @@ class _CreateAndEditGeometriesState extends State<CreateAndEditGeometries> {
   bool? isKebutuhanKabel = false;
 
   List<PathsTrigger> paths = [];
+  bool drawPoint = false, drawLine = false;
+  TextEditingController searchController = TextEditingController();
+  LocatorTask? locatorTask;
+  SuggestResult? suggestResult;
+  final _repaintKey = GlobalKey();
+
+  List<SuggestResult> suggestPlace = [];
+  bool isLoadingSuggest = false;
+
+  Widget buildDropDownLocationSuggest() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text("Search Place",
+            style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: Colors.black)),
+        Container(
+          // padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            border: Border.all(color: Colors.black26),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownSearch<SuggestResult>(
+              asyncItems: (String filter) async {
+                return await suggestList(filter: filter);
+              },
+              itemAsString: (item) {
+                return item.label;
+              },
+              selectedItem: suggestResult,
+              popupProps: const PopupProps.menu(
+                  fit: FlexFit.loose,
+                  showSearchBox: true,
+                  isFilterOnline: true),
+              onChanged: (value) {
+                geocodingSearch(filter: value!.label);
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void initLocatorTask() async {
+    locatorTask = LocatorTask.withUri(
+      Uri.parse(
+        'https://geocode-api.arcgis.com/arcgis/rest/services/World/GeocodeServer',
+      ),
+    );
+    locatorTask!.apiKey = 'AAPTxy8BH1VEsoebNVZXo8HurGg8GhcR-F3-iQtJ01J3YvK1uXuKS-Jciw4IGFMGw7EMUXz9jaixmnM896oOSBLzFl0pZ035BIgCZn3NKKlp8mYE-mS-rRerbYEJFmP-aSJBSshKecYMVLqyVNRdTFOr16PRAXJD5WLlBJIG3zVRlYCVORGQ7MJVtIHoXtmpKw1zGOMhMUEX-8pVVlSvQ4XW1ADrXWXiOURbLB1EH9W72p8.AT1_tSyrftwT';
+  }
+
+  void geocodingSearch({String? filter}) async {
+    try {
+      initLocatorTask();
+      GeocodeParameters geocodeParameters = GeocodeParameters();
+      var results = await locatorTask!.geocode(searchText: filter!);
+
+      final result = results.firstOrNull;
+
+      if (result != null) {
+        final combinedString =
+            'Found ${result.label} at ${result.displayLocation} with score ${result.score}';
+
+        setState(() {
+         _mapViewController.setViewpoint(
+            Viewpoint.fromCenter(
+              ArcGISPoint(
+                x: result.displayLocation!.x,
+                y: result.displayLocation!.y,
+                spatialReference: result.displayLocation!.spatialReference,
+              ),
+              scale: 5000,
+            ),
+          );
+        });
+      }
+
+    } catch (e) {
+      dev.log("error ${e.toString()}");
+    }
+  }
+
+  suggestList({String? filter}) async {
+    try {
+      initLocatorTask();
+      dev.log("bye $filter");
+      if(filter!.isEmpty) {
+        return [];
+      }
+      suggestPlace = await locatorTask!.suggest(searchText: filter, parameters: SuggestParameters()..maxResults = 5);
+      return suggestPlace;
+    } catch (e) {
+      dev.log("error ${e.toString()}");
+    }
+  }
 
   onInit() async {
     setState(() {
       listMasterKebutuhanModel!.add(
-        MasterKebutuhanModel(namaKebutuhan: "Tiang Beton", typeGeometry: GeometryType.point, color: Colors.red)
+        MasterKebutuhanModel(namaKebutuhan: "Tiang Beton", typeGeometry: GeometryType.multipoint, color: Colors.red)
       );
       listMasterKebutuhanModel!.add(
-        MasterKebutuhanModel(namaKebutuhan: "Tiang Besi", typeGeometry: GeometryType.point, color: Colors.yellow)
+        MasterKebutuhanModel(namaKebutuhan: "Tiang Besi", typeGeometry: GeometryType.multipoint, color: Colors.yellow)
       );
       listMasterKebutuhanModel!.add(
-        MasterKebutuhanModel(namaKebutuhan: "Konstruksi", typeGeometry: GeometryType.point, color: Colors.blue)
+        MasterKebutuhanModel(namaKebutuhan: "Konstruksi", typeGeometry: GeometryType.multipoint, color: Colors.blue)
       );
       listMasterKebutuhanModel!.add(
-        MasterKebutuhanModel(namaKebutuhan: "Trafo", typeGeometry: GeometryType.point, color: Colors.black)
+        MasterKebutuhanModel(namaKebutuhan: "Trafo", typeGeometry: GeometryType.multipoint, color: Colors.black)
       );
       listMasterKebutuhanKabelModel!.add(
         MasterKebutuhanModel(namaKebutuhan: "SUTR", typeGeometry: GeometryType.polyline, color: Colors.yellow)
@@ -100,9 +207,37 @@ class _CreateAndEditGeometriesState extends State<CreateAndEditGeometries> {
     onInit();
   }
 
+  Future<void> _saveToFile() async {
+    try {
+      final path =
+          '/storage/emulated/0/Download/hasil_garis_warna_${DateTime.now().millisecondsSinceEpoch}.png';
+      final bytes = await _mapViewController.exportImage();
+      final file = File(path);
+      await file.writeAsBytes(bytes.getEncodedBuffer());
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('✅ Gambar disimpan di: $path')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('❌ Gagal menyimpan gambar: $e')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: AppBar(
+        title: const Text('Garis & Titik Warna Berbeda'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.save),
+            onPressed: _saveToFile,
+            tooltip: "Simpan ke PNG",
+          ),
+        ],
+      ),
       body: SafeArea(
         top: false,
         left: false,
@@ -111,23 +246,42 @@ class _CreateAndEditGeometriesState extends State<CreateAndEditGeometries> {
           children: [
             Column(
               children: [
+                Container(
+                  padding: EdgeInsets.all(10),
+                  child: buildDropDownLocationSuggest()
+                ),
                 Expanded(
                   // Add a map view to the widget tree and set a controller.
-                  child: ArcGISMapView(
-                    controllerProvider: () => _mapViewController,
-                    onMapViewReady: onMapViewReady,
-                    // Only select existing graphics to edit if the geometry editor is not started
-                    // i.e. editing is not already in progress.
-                    onTap: !_geometryEditorIsStarted ? onTap : null,
+                  child: RepaintBoundary(
+                    key: _repaintKey,
+                    child: ArcGISMapView(
+                      controllerProvider: () => _mapViewController,
+                      onMapViewReady: onMapViewReady,
+                      // Only select existing graphics to edit if the geometry editor is not started
+                      // i.e. editing is not already in progress.
+                      onTap: !_geometryEditorIsStarted ? onTap : null,
+                    ),
                   ),
                 ),
                 // Build the bottom menu.
                 buildBottomMenu(),
-                ...listKebutuhanModel!.map((value) {
-                  return Container(
-                    child: Text(value.jenisKebutuhan.toString()),
+                if(listKebutuhanModel!.isNotEmpty)
+                ...listMasterKebutuhanKabelModel!.map((valueKabel) {
+                  return Column(
+                    children: [
+                      const Divider(height: 10),
+                      Text(valueKabel.namaKebutuhan!),
+                      const Divider(height: 10),
+                      ...listMasterKebutuhanModel!.map((valueKebutuhan) {
+                        int total = listKebutuhanModel!.where((elementKebutuhan) {
+                          return elementKebutuhan.jenisKabel == valueKabel.namaKebutuhan && elementKebutuhan.jenisKebutuhan == valueKebutuhan.namaKebutuhan;
+                        }).length;
+                        return Text("${valueKebutuhan.namaKebutuhan}: $total");
+                      }),
+                      const Divider(height: 10),
+                    ],
                   );
-                })
+                }),
               ],
             ),
             Visibility(
@@ -196,16 +350,15 @@ class _CreateAndEditGeometriesState extends State<CreateAndEditGeometries> {
 
     // Get the features from the identify result.
     final graphics = identifyResult.graphics;
-    log("indetify ${graphics.toString()}");
 
     if (graphics.isNotEmpty) {
       final graphic = graphics.first;
-      log("graphic first ${graphic.geometry.toString()}");
       if (graphic.geometry != null) {
         final geometry = graphic.geometry!;
         Map<String, dynamic> trigger = geometry.toJson();
+        dev.log("json ${trigger.toString()}");
         // Hide the selected graphic so that only the version of the graphic that is being edited is visible.
-        // graphic.isVisible = false;
+        graphic.isVisible = false;
         // Set the graphic as the selected graphic and also set the selected geometry type to update the UI.
         _selectedGraphic = graphic;
         setState(() => _selectedGeometryType = geometry.geometryType);
@@ -214,21 +367,10 @@ class _CreateAndEditGeometriesState extends State<CreateAndEditGeometries> {
             geometry.geometryType == GeometryType.multipoint) {
           _geometryEditor.tool = _vertexTool;
           
-          // setState(() => _selectedTool = _vertexTool);
-          setState(() {
-            if(paths.length >= 2) {
-              paths.clear();
-            }
-            paths.add(PathsTrigger(x: trigger['x'], y: trigger['y'], spatialReference: {
-              'wkid': trigger['spatialReference']['wkid'],
-              'latestWkid': trigger['spatialReference']['latestWkid']
-             }));
-             createLine();
-          });
+          setState(() => _selectedTool = _vertexTool);
         }
         // Start the geometry editor using the geometry of the graphic.
-        // _geometryEditor.startWithGeometry(geometry);
-        // startEditingWithGeometryType(GeometryType.polyline);
+        _geometryEditor.startWithGeometry(geometry);
       }
     }
   }
@@ -240,30 +382,49 @@ class _CreateAndEditGeometriesState extends State<CreateAndEditGeometries> {
   }
 
   void createLine() {
-    if(paths.length > 1) {
-      Map<String, dynamic> json = {};
-      List<List> points = [];
-      for (var value in paths) {
-        points.add([value.x, value.y]);
-      }
-
-      json['paths'] = [points];
-      json['spatialReference'] = paths[0].spatialReference;
-
-      final ggg = Geometry.fromJson(json);
-      
-      _polylineSymbol = SimpleLineSymbol(color: Colors.blue, width: 5);
-      _graphicsOverlay.graphics.add(Graphic(geometry: ggg, symbol: _polylineSymbol));
+    Map<String, dynamic> json = {};
+    List<List> points = [];
+    for (var value in listKebutuhanModel!) {
+      points.add([value.x, value.y]);
     }
+
+    json['paths'] = [points];
+    json['spatialReference'] = _mapViewController.spatialReference;
+
+    final ggg = Geometry.fromJson(json);
+    
+    _polylineSymbol = SimpleLineSymbol(color: masterKebutuhanKabelModel!.color!, width: 2, style: SimpleLineSymbolStyle.dash);
+    _graphicsOverlay.graphics.add(Graphic(geometry: ggg, symbol: _polylineSymbol));
+  }
+
+  double calculateDistance(double x1, double y1, double x2, double y2) {
+    double x = x2 - x1;
+    double y = y2 - y1;
+    x = x * x;
+    y = y * y;
+    return sqrt(x+y);
+  }
+
+  bool isNear(KebutuhanModel kebutuhan, List paths) {
+    bool isFind = false;
+    for(int j = 0; j < paths.length; j++) {
+      double sfrt = calculateDistance(kebutuhan.x!, kebutuhan.y!, paths[j][0], paths[j][1]);
+      if(sfrt <= 10) {
+        isFind = true;
+        break;
+      }
+      dev.log("log : ${calculateDistance(kebutuhan.x!, kebutuhan.y!, paths[j][0], paths[j][1])}");
+    }
+    return isFind;
   }
 
   void stopAndSave() {
-    log("yanto");
+    dev.log("yanto");
     // Get the geometry from the geometry editor.
     final geometry = _geometryEditor.stop();
     Map<String, dynamic> jsonDecodeGeometry = jsonDecode(jsonEncode(geometry));
 
-    log("geometry ${jsonDecodeGeometry.toString()}");
+    dev.log("geometry ${jsonDecodeGeometry.toString()}");
 
     if (geometry != null) {
       if (_selectedGraphic != null) {
@@ -305,15 +466,31 @@ class _CreateAndEditGeometriesState extends State<CreateAndEditGeometries> {
               listKebutuhanModel!.add(KebutuhanModel(
                 jenisKebutuhan: masterKebutuhanModel!.namaKebutuhan,
                 x: jsonDecodeGeometry['points'][i][0],
-                y: jsonDecodeGeometry['points'][i][1]
+                y: jsonDecodeGeometry['points'][i][1],
+                spatialReference: _mapViewController.spatialReference
               ));
             }
           }
+          
+          dev.log("deee");
         }
       });
     }
+    
+    setState(() {  
+      if(drawLine) {
+        for (var value in listKebutuhanModel!) {
+          if(isNear(value, jsonDecodeGeometry['paths'][0])) {
+            dev.log("near");
+            value.jenisKabel ??= masterKebutuhanKabelModel!.namaKebutuhan;
+          }
+        }
+      }
+      masterKebutuhanModel = null;
+      masterKebutuhanKabelModel = null;
+    });
 
-    log("listKebutuhanModel ${jsonEncode(listKebutuhanModel)}");
+    dev.log("list_kebutuhan ${jsonEncode(listKebutuhanModel)}");
 
     // Reset the selected geometry type to null.
     setState(() => _selectedGeometryType = null);
@@ -462,14 +639,16 @@ class _CreateAndEditGeometriesState extends State<CreateAndEditGeometries> {
           onChanged: !_geometryEditorIsStarted
             ? (MasterKebutuhanModel? masterKebutuhan) {
                 if (masterKebutuhan != null) {
-                  startEditingWithGeometryType(masterKebutuhan.typeGeometry!);
                   setState(() {  
                     masterKebutuhanModel = masterKebutuhan;
                     _selectedColorMultiPoint = masterKebutuhan.color;
-                    if(masterKebutuhan.typeGeometry == GeometryType.point) {
-                     _pointSymbol = SimpleMarkerSymbol(
+                    startEditingWithGeometryType(masterKebutuhanModel!.typeGeometry!);
+                    if(masterKebutuhan.typeGeometry == GeometryType.multipoint) {
+                      drawPoint = true;
+                      drawLine = false;
+                     _multipointSymbol = SimpleMarkerSymbol(
                         color: _selectedColorMultiPoint!,
-                        size: 12,
+                        size: 12
                       );
                     }
                   });
@@ -478,55 +657,37 @@ class _CreateAndEditGeometriesState extends State<CreateAndEditGeometries> {
             : null,  
         ),
 
-        // DropdownButton(
-        //   alignment: Alignment.center,
-        //   hint: Text(
-        //     'Kebutuhan Kabel',
-        //     style: Theme.of(context).textTheme.labelMedium,
-        //   ),
-        //   icon: const Icon(Icons.arrow_drop_down),
-        //   iconEnabledColor: Theme.of(context).colorScheme.primary,
-        //   iconDisabledColor: Theme.of(context).disabledColor,
-        //   style: Theme.of(context).textTheme.labelMedium,
-        //   value: masterKebutuhanKabelModel,
-        //   items: listMasterKebutuhanKabelModel!.map((value) {
-        //     final isVertexTool = _selectedTool == _vertexTool || _selectedTool == _reticleVertexTool;
-        //     if (value.typeGeometry == GeometryType.point || value.typeGeometry == GeometryType.multipoint) {
-        //       return DropdownMenuItem(
-        //         enabled: isVertexTool,
-        //         value: value,
-        //         child: Text(
-        //           value.namaKebutuhan!.capitalize(),
-        //           style: isVertexTool
-        //               ? null
-        //               : const TextStyle(
-        //                   color: Colors.grey,
-        //                   fontStyle: FontStyle.italic,
-        //                 ),
-        //         ),
-        //       );
-        //     } else {
-        //       return DropdownMenuItem(
-        //         value: value,
-        //         child: Text(value.namaKebutuhan!.capitalize()),
-        //       );
-        //     }
-        //   }).toList(),
-        //   onChanged: !_geometryEditorIsStarted
-        //     ? (MasterKebutuhanModel? masterKebutuhan) {
-        //         if (masterKebutuhan != null) {
-        //           startEditingWithGeometryType(masterKebutuhan.typeGeometry!);
-        //           setState(() {  
-        //             masterKebutuhanModel = masterKebutuhan;
-        //             _selectedColorMultiPoint = masterKebutuhan.color;
-        //             if(masterKebutuhan.typeGeometry == GeometryType.multipoint) {
-        //               _multipointSymbol = SimpleMarkerSymbol(color: _selectedColorMultiPoint!, size: 10);
-        //             }
-        //           });
-        //         }
-        //       }
-        //     : null,  
-        // ),
+        DropdownButton(
+          alignment: Alignment.center,
+          hint: Text(
+            'Kebutuhan Kabel',
+            style: Theme.of(context).textTheme.labelMedium,
+          ),
+          icon: const Icon(Icons.arrow_drop_down),
+          iconEnabledColor: Theme.of(context).colorScheme.primary,
+          iconDisabledColor: Theme.of(context).disabledColor,
+          style: Theme.of(context).textTheme.labelMedium,
+          value: masterKebutuhanKabelModel,
+          items: listMasterKebutuhanKabelModel!.map((value) {
+            return DropdownMenuItem(
+              value: value,
+              child: Text(value.namaKebutuhan!.capitalize()),
+            );
+          }).toList(),
+          onChanged: !_geometryEditorIsStarted
+            ? (MasterKebutuhanModel? masterKebutuhan) {
+                if (masterKebutuhan != null) {
+                  startEditingWithGeometryType(masterKebutuhan.typeGeometry!);
+                  setState(() {  
+                    drawPoint = false;
+                    drawLine = true;
+                    masterKebutuhanKabelModel = masterKebutuhan;
+                    _polylineSymbol = SimpleLineSymbol(color: masterKebutuhan.color!, width: 5, style: SimpleLineSymbolStyle.dash);
+                  });
+                }
+              }
+            : null,  
+        ),
 
         // A drop down button for selecting a tool.
         // DropdownButton(
@@ -635,6 +796,9 @@ class _CreateAndEditGeometriesState extends State<CreateAndEditGeometries> {
                             setState(() {
                               _graphicsOverlay.graphics.clear();
                               listKebutuhanModel!.clear();
+                              paths.clear();
+                              masterKebutuhanKabelModel = null;
+                              masterKebutuhanModel = null;
                             });
                           }
                           : null,
